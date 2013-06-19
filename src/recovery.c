@@ -627,19 +627,61 @@ static intentResult* intent_run_ors(int argc, char *argv[]) {
 }
 //INTENT_ADB_SIEDLOAD sideload
 static intentResult* intent_adb_sideload(int argc, char *argv[]) {
-	int ret = 0;
 	return_intent_result_if_fail(argc == 1);
-	finish_recovery(NULL);
-	if (0 == strcmp(argv[0], "sideload")) {
-		adb_main();
-		 apply_from_adb();		
-		
+	struct stat st;
+	char sideload_file[256];
+        if (stat("/tmp/sideload.zip", &st) == 0) {
+		unlink("/tmp/sideload.zip");
 	}
-	return miuiIntent_result_set(0, NULL);
+
+	int result = strcmp(argv[0], "sideload");
+       //	if (0 == strcmp(argv[0], "sideload")) {
+            if (0 == result) {
+		 apply_from_adb(sideload_file);
+                 return miuiIntent_result_set(result, "enable");
+            }		 
+	return miuiIntent_result_set(result, "fail");
 }
 
-
-
+//INTENT_ADB_SIDELOAD_DISABLE sideload
+static intentResult* intent_adb_sideload_disable(int argc, char *argv[]) {
+           return_intent_result_if_fail(argc == 1);
+	   int result = strcmp(argv[0], "sideload");
+	   if (0 == result) {
+		   int child_pid;
+		   char child_prop[PROPERTY_VALUE_MAX + 1];
+		   //check the sideload.zip 
+		   //need to add some code here
+		//
+		   property_get("miui_child_pid", child_prop, "error");
+		    if (strcmp(child_prop, "error") == 0) {
+			    LOGE("Unable to get child ID from prop..\n");
+			    return 0;
+		    }
+		    child_pid = atoi(child_prop);
+		    printf("Cancelling ADB sideload...\n");
+		    kill(child_pid, SIGTERM);
+		    
+		    return miuiIntent_result_set(result, "disable");
+	   }
+	   return miuiIntent_result_set(result, "fail");
+}
+//INTENT_IS_SIDELOAD sideload
+static intentResult* intent_is_sideload(int argc, char *argv[]) {
+	return_intent_result_if_fail(argc == 1);
+	int result = strcmp(argv[0], "sideload");
+	if (0 == result) {
+		int child_pid;
+		char child_prop[PROPERTY_VALUE_MAX + 1];
+		property_get("miui_child_pid", child_prop, "error");
+		if (strcmp(child_pid, "error") == 0) {
+			LOGE("Unable to get child ID from prop..\n");
+			return 0;
+		} 
+		return 1;
+	}
+	return miuiIntent_result_set(result, NULL);
+}
 
 
 
@@ -680,11 +722,6 @@ static void setup_adbd() {
 
 int main(int argc, char **argv) {
 
-//	if (argc == 2 && strcmp(argv[1], "adbd") == 0 ) {
-	//	adb_main();
-	//	return 0;
-//	}
-
     time_t start = time(NULL);
 
     // If these fail, there's not really anywhere to complain...
@@ -695,6 +732,11 @@ int main(int argc, char **argv) {
     freopen(TEMPORARY_LOG_FILE, "a", stdout); setbuf(stdout, NULL);
     freopen(TEMPORARY_LOG_FILE, "a", stderr); setbuf(stderr, NULL);
     printf("Starting recovery on %s", ctime(&start));
+
+   if (argc == 3 && strcmp(argv[1], "--adbd") == 0 ) {
+		adb_main(argv[2]);
+		return 0;
+	}
     //miuiIntent init
     miuiIntent_init(10);
     miuiIntent_register(INTENT_MOUNT, &intent_mount);
@@ -713,6 +755,9 @@ int main(int argc, char **argv) {
     miuiIntent_register(INTENT_ROOT, &intent_root);
     miuiIntent_register(INTENT_RUN_ORS, &intent_run_ors);
     miuiIntent_register(INTENT_ADB_SIDELOAD, &intent_adb_sideload);
+    miuiIntent_register(INTENT_ADB_SIDELOAD_DISABLE, &intent_adb_sideload_disable);
+    miuiIntent_register(INTENT_IS_SIDELOAD, &intent_is_sideload);
+
     device_ui_init();
     load_volume_table();
     get_args(&argc, &argv);
@@ -725,7 +770,7 @@ int main(int argc, char **argv) {
     const char *send_intent = NULL;
     const char *update_package = NULL;
     int wipe_data = 0, wipe_cache = 0;
-    int sideload = 0;
+  //  int sideload = 0;
 
     int arg;
     while ((arg = getopt_long(argc, argv, "", OPTIONS, NULL)) != -1) {
@@ -735,7 +780,7 @@ int main(int argc, char **argv) {
         case 'u': update_package = optarg; break;
         case 'w': wipe_data = wipe_cache = 1; break;
         case 'c': wipe_cache = 1; break;
-	case 'l': sideload = 1; break;
+//	case 'l': sideload = 1; break;
         //case 't': ui_show_text(1); break;
         case '?':
             LOGE("Invalid command argument\n");
@@ -786,11 +831,11 @@ int main(int argc, char **argv) {
     } else if (wipe_cache) {
         if (wipe_cache && erase_volume("/cache")) status = INSTALL_ERROR;
         if (status != INSTALL_SUCCESS) ui_print("Cache wipe failed.\n");
-    } else if (sideload) {
-	    ui_set_background(BACKGROUND_ICON_INSTALLING);
-	    if (0 == apply_from_adb()) {
-		    status = INSTALL_SUCCESS;
-	    }
+   // } else if (sideload) {
+	   // ui_set_background(BACKGROUND_ICON_INSTALLING);
+	   // if (0 == apply_from_adb()) {
+	//	    status = INSTALL_SUCCESS;
+	  //  }
     } else {
 	    LOGI("Checking for OpenRecoveryScript...\n");
         status = INSTALL_ERROR;  // No command specified

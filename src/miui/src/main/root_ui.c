@@ -42,12 +42,21 @@
 
 #define ROOT_DEVICE 1
 #define DISABLE_OFFICAL_REC 2
-#define E_SIG 0x89
-#define D_SIG 0X90
+//#define E_SIG 0x89
+//#define D_SIG 0X90
 //#define CURRENT_SIGN_STAT_PATH "/tmp/gaojiquan"
 //INTENT_RUN_ORS ,1, filename
 //
 #define AUTHOR_INFO "/tmp/author_info.log"
+
+//adb sideload 
+#define ADB_SIDELOAD 0X15
+#define ADB_SIDELOAD_ENABLE "1"
+#define ADB_SIDELOAD_DISABLE "0"
+
+static struct _menuUnit *adb_node;
+static struct _menuUnit *adb_sideload_node = NULL;
+
 
 static STATUS root_device_item_show(menuUnit *p) {
 	if(RET_YES == miui_confirm(3, p->name, p->desc, p->icon)) {
@@ -191,11 +200,77 @@ static STATUS about_author_menu_show(menuUnit* p) {
 	 return MENU_BACK;
 }
 
+
+//INTENT_ADB_SIDELOAD sideload
+// INTENT_ADB_SIDELOAD_DISABLE sideload
+//
+
 static STATUS adb_sideload_menu_show(menuUnit* p) {
-		miuiIntent_send(INTENT_ADB_SIDELOAD, 1, "sideload");
+	//enable fro start adb sideload 
+	//disalbe for stop adb sideload
+	miuiIntent_send(INTENT_IS_SIDELOAD, 1, "sideload");
+	if (miuiIntent_result_get_int() == 1 ) {
+		menuUnit_set_icon(adb_sideload_node, ICON_ENABLE);
+		menuUnit_set_desc(adb_sideload_node, ADB_SIDELOAD_ENABLE);
+	} else {
+		menuUnit_set_icon(adb_sideload_node, ICON_DISABLE);
+		menuUnit_set_desc(adb_sideload_node, ADB_SIDELOAD_DISABLE);
+	}
 	
+	//show menu
+	return_val_if_fail(p != NULL, RET_FAIL);
+	int n = p->get_child_count(p);
+	return_val_if_fail(n > 0, RET_FAIL);
+	int selindex = 0;
+	return_val_if_fail( n >= 1, RET_FAIL);
+	return_val_if_fail(n < ITEM_COUNT, RET_FAIL);
+	struct _menuUnit *temp = p->child;
+	return_val_if_fail(temp != NULL, RET_FAIL);
+	char **menu_item = malloc(n * sizeof(char *));
+	assert_if_fail(menu_item != NULL);
+	char **icon_item = malloc(n * sizeof(char *));
+	assert_if_fail(icon_item != NULL);
+	char **title_item = malloc(n * sizeof(char *));
+	assert_if_fail(title_item != NULL);
+	int i = 0;
+		for (i = 0; i < n; i++) {
+		menu_item[i] = temp->name;
+		title_item[i] = temp->title_name;
+		icon_item[i] = temp->icon;
+		temp = temp->nextSilbing;
+	}
+	selindex = miui_mainmenu(p->name, menu_item, NULL, icon_item, n);
+	p->result = selindex;
+	if (menu_item != NULL) 
+		free(menu_item);
+	if (title_item != NULL)
+		free(title_item);
+	if (icon_item != NULL);
+		free(icon_item);
+	return p->result;
+}
+
+static STATUS sideload_child_show(menuUnit* p) {
+		intentType intent_type = (p->desc[0] == '0') ? INTENT_ADB_SIDELOAD : INTENT_ADB_SIDELOAD_DISABLE;
+	switch (p->result) {
+		case ADB_SIDELOAD:
+			miuiIntent_send(intent_type, 1, "sideload");
+			break;
+		default:
+			break;
+	}
+	if (strstr(miuiIntent_result_get_string(), "enable") != NULL) {
+		menuUnit_set_icon(p, ICON_ENABLE);
+		menuUnit_set_desc(p, ADB_SIDELOAD_ENABLE);
+	} else if (strstr(miuiIntent_result_get_string(), "disable") != NULL) {
+		menuUnit_set_icon(p, ICON_DISABLE);
+		menuUnit_set_desc(p, ADB_SIDELOAD_DISABLE);
+	} else {
+		assert_ui_if_fail(0);
+	}
 	return MENU_BACK;
 }
+
 
 
 
@@ -205,13 +280,19 @@ struct _menuUnit* adb_sideload_ui_init() {
 	menuUnit_set_name(p, "ADB Sideload");
 	menuUnit_set_title(p, "ADB Sideload");
 	menuUnit_set_icon(p, "@root");
+	menuUnit_set_show(p, &adb_sideload_menu_show);
 	assert_if_fail(menuNode_init(p) != NULL);
 	//adb sideload 
 	struct _menuUnit* temp = common_ui_init();
-	menuUnit_set_name(temp, "ADB Sideload");
-	menuUnit_set_show(temp, &adb_sideload_menu_show);
 	assert_if_fail(menuNode_add(p, temp) == RET_OK);
+	return_null_if_fail(menuUnit_set_name(temp, "adb sideload") == RET_OK);
+	return_null_if_fail(menuUnit_set_icon(temp, ICON_DISABLE) == RET_OK);
+	return_null_if_fail(menuUnit_set_result(temp, ADB_SIDELOAD) == RET_OK);
+	return_null_if_fail(menuUnit_set_desc(temp, ADB_SIDELOAD_DISABLE) == RET_OK);
+	return_null_if_fail(RET_OK == menuUnit_set_show(temp, &sideload_child_show));
+	adb_sideload_node = temp;
 
+	adb_node = p;
 	return p;
 }
 

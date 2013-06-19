@@ -13,8 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#ifndef ADB_INSTALL_H
+#define ADB_INSTALL_H
 
 
+int apply_from_adb(const char* install_file);
 
-int apply_from_adb();
+#endif
+
 

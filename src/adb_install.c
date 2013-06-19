@@ -38,22 +38,6 @@
 #include "miui_intent.h"
 #include "miui/src/miui.h"
 
-// Key event input queue
-static pthread_mutex_t key_queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t key_queue_cond = PTHREAD_COND_INITIALIZER;
-static int key_queue[256], key_queue_len = 0;
-static unsigned long key_last_repeat[KEY_MAX + 1], key_press_time[KEY_MAX + 1];
-static volatile char key_pressed[KEY_MAX + 1];
-
-
-
-void ui_cancel_wait_key() {
-    pthread_mutex_lock(&key_queue_mutex);
-    key_queue[key_queue_len] = -2;
-    key_queue_len++;
-    pthread_cond_signal(&key_queue_cond);
-    pthread_mutex_unlock(&key_queue_mutex);
-}
 
 static void
 set_usb_driver(int enabled) {
@@ -97,30 +81,9 @@ maybe_restart_adbd() {
     }
 }
 
-struct sideload_waiter_data {
-    pid_t child;
-};
 
-void *adb_sideload_thread(void* v) {
-    struct sideload_waiter_data* data = (struct sideload_waiter_data*)v;
 
-    int status;
-    waitpid(data->child, &status, 0);
-    LOGI("sideload process finished\n");
-    
-     ui_cancel_wait_key();
-    // miui_busy_process();
-    //sleep(100);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        ui_print("status %d\n", WEXITSTATUS(status));
-    }
-
-    LOGI("sideload thread finished\n");
-    return NULL;
-}
-
-int
-apply_from_adb() {
+int apply_from_adb(const char* install_file) {
 
     stop_adbd();
     set_usb_driver(1);
@@ -128,9 +91,9 @@ apply_from_adb() {
     ui_print("\n\nSideload started ...\nNow send the package you want to apply\n"
               "to the device with \"adb sideload <filename>\"...\n\n");
 
-    struct sideload_waiter_data data;
-    if ((data.child = fork()) == 0) {
-        execl("/sbin/recovery", "recovery", "adbd", NULL);
+    pid_t child;
+    if ((child = fork()) == 0) {
+        execl("/sbin/recovery", "recovery", "--adbd", install_file, NULL);
 	printf("fork a child ..\n");
 
         _exit(-1);
@@ -139,43 +102,35 @@ apply_from_adb() {
     }
 
     
-    pthread_t sideload_thread;
-    pthread_create(&sideload_thread, NULL, &adb_sideload_thread, &data);
-    
-  //  static char* headers[] = {  "ADB Sideload",
-  //                              "",
-  //                              NULL
-  //  };
+         char child_prop[PROPERTY_VALUE_MAX + 1];
+	 sprintf(child_prop, "%i", child);
+	 property_set("miui_child_pid", child_prop);
 
-  //  static char* list[] = { "Cancel sideload", NULL };
-  //  
-  //  get_menu_selection(headers, list, 0, 0);
+   int status;
 
+   waitpid(child, &status, 0);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+	    printf("status %d\n", WEXITSTATUS(status));
+    }
     set_usb_driver(0);
     maybe_restart_adbd();
 
-    // kill the child
-    kill(data.child, SIGTERM);
-    pthread_join(sideload_thread, NULL);
-   // ui_clear_key_queue();
-
     struct stat st;
-    if (stat(ADB_SIDELOAD_FILENAME, &st) != 0) {
-        if (errno == ENOENT) {
-            ui_print("No package received.\n");
-            ui_set_background(BACKGROUND_ICON_ERROR);
-        } else {
-            ui_print("Error reading package:\n  %s\n", strerror(errno));
-            ui_set_background(BACKGROUND_ICON_ERROR);
-        }
-        return INSTALL_ERROR;
+
+    if (stat(install_file, &st) != 0) {
+	    if (errno == ENOENT) {
+		    printf("No package recived. \n");
+	    } else {
+		    printf("Error reading package:\n %s\n", strerror(errno));
+	    } 
+	    return -1;
     }
 
     //int install_status = install_package(ADB_SIDELOAD_FILENAME);
     int install_status = 0;
    // modify by sndnvaps , make it to support MIUI RECOVERY
     // ui_set_background(BACKGROUND_ICON_INSTALLING); 
-     miuiIntent_send(INTENT_INSTALL, 3, ADB_SIDELOAD_FILENAME, "0", "0");
+     miuiIntent_send(INTENT_INSTALL, 3, ADB_SIDELOAD_FILENAME, "0", "1");
      //if echo 0, don't print success dialog
      install_status = miuiIntent_result_get_int();
 
